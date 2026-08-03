@@ -77,7 +77,15 @@ export class AuthController {
     try {
       const { email } = req.body;
       const result = await authService.forgotPassword(email);
-      sendSuccess(res, result.message);
+      sendSuccess(res, result.message, { email: result.email });
+    } catch (error) { next(error); }
+  }
+
+  async verifyResetOTP(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { email, otp } = req.body;
+      const result = await authService.verifyResetOTP(email, otp);
+      sendSuccess(res, result.message, { resetToken: result.resetToken });
     } catch (error) { next(error); }
   }
 

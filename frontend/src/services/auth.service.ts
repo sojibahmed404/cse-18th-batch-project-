@@ -21,7 +21,12 @@ export const authService = {
   },
 
   forgotPassword: async (email: string) => {
-    const { data } = await api.post<ApiResponse>('/auth/forgot-password', { email });
+    const { data } = await api.post<ApiResponse<{ email: string }>>('/auth/forgot-password', { email });
+    return data;
+  },
+
+  verifyResetOtp: async (email: string, otp: string) => {
+    const { data } = await api.post<ApiResponse<{ resetToken: string }>>('/auth/verify-reset-otp', { email, otp });
     return data;
   },
 

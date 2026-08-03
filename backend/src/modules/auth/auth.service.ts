@@ -3,7 +3,7 @@ import prisma from '../../config/database';
 import { generateOTP, getOTPExpiry, isOTPExpired } from '../../utils/otp';
 import { hashPassword, comparePassword, validatePasswordStrength } from '../../utils/password';
 import { generateAccessToken, generateRefreshToken, getRefreshTokenExpiry, verifyRefreshToken } from '../../utils/jwt';
-import { sendEmail, generateOTPEmailHTML, generatePasswordResetEmailHTML } from '../../config/email';
+import { sendEmail, generateOTPEmailHTML } from '../../config/email';
 import { env } from '../../config/env';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../../config/logger';
@@ -253,43 +253,106 @@ export class AuthService {
       where: { email },
       include: { student: true },
     });
-    // Always return success (don't reveal if email exists)
-    if (!user || !user.isEmailVerified) {
-      return { message: 'If this email is registered, you will receive a password reset link.' };
+
+    if (!user) {
+      throw Object.assign(new Error('No registered account found with this email address.'), { statusCode: 404 });
     }
 
-    // Invalidate existing reset tokens
+    // Invalidate existing unused password resets
     await prisma.passwordReset.updateMany({
       where: { userId: user.id, isUsed: false },
       data: { isUsed: true },
     });
 
-    const token = uuidv4();
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    const otp = generateOTP();
+    const otpExpiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes session expiry
 
     await prisma.passwordReset.create({
-      data: { userId: user.id, token, expiresAt },
+      data: {
+        userId: user.id,
+        otp,
+        otpExpiresAt,
+        attempts: 0,
+        isOtpVerified: false,
+        expiresAt,
+      },
     });
 
-    const resetLink = `${env.FRONTEND_URL}/reset-password?token=${token}`;
     const name = user.student ? `${user.student.firstName} ${user.student.lastName}` : 'Student';
-    await sendEmail({
+    const emailSent = await sendEmail({
       to: email,
-      subject: 'Password Reset Request - CSE 18th Batch Portal',
-      html: generatePasswordResetEmailHTML(resetLink, name),
+      subject: `Your Password Reset OTP Code: ${otp} - CSE 18th Batch Portal`,
+      html: generateOTPEmailHTML(otp, name),
     });
 
-    return { message: 'If this email is registered, you will receive a password reset link.' };
+    logger.info(`Password reset OTP sent to ${email} (sent=${emailSent})`);
+    if (env.NODE_ENV === 'development') {
+      logger.info(`[DEV] Password Reset OTP for ${email}: ${otp}`);
+    }
+
+    return { message: '6-digit OTP code sent to your registered Gmail address', email };
+  }
+
+  async verifyResetOTP(email: string, otp: string) {
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      throw Object.assign(new Error('User not found'), { statusCode: 404 });
+    }
+
+    const resetRecord = await prisma.passwordReset.findFirst({
+      where: { userId: user.id, isUsed: false, isOtpVerified: false },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!resetRecord || !resetRecord.otp || !resetRecord.otpExpiresAt) {
+      throw Object.assign(new Error('No active password reset OTP found. Please request a new one.'), { statusCode: 400 });
+    }
+
+    if (new Date() > resetRecord.otpExpiresAt) {
+      throw Object.assign(new Error('OTP code has expired (5-minute limit). Please request a new one.'), { statusCode: 400 });
+    }
+
+    if (resetRecord.attempts >= 5) {
+      throw Object.assign(new Error('Maximum 5 incorrect attempts reached. Please request a new OTP.'), { statusCode: 429 });
+    }
+
+    if (resetRecord.otp !== otp) {
+      const nextAttempts = resetRecord.attempts + 1;
+      await prisma.passwordReset.update({
+        where: { id: resetRecord.id },
+        data: { attempts: nextAttempts },
+      });
+
+      const remaining = 5 - nextAttempts;
+      const errorMsg = remaining > 0 
+        ? `Invalid OTP code. You have ${remaining} attempt(s) remaining.`
+        : `Invalid OTP code. Maximum 5 incorrect attempts reached. Please request a new OTP.`;
+      
+      throw Object.assign(new Error(errorMsg), { statusCode: remaining > 0 ? 400 : 429 });
+    }
+
+    // OTP matched! Generate single-use resetToken
+    const resetToken = uuidv4();
+    await prisma.passwordReset.update({
+      where: { id: resetRecord.id },
+      data: {
+        isOtpVerified: true,
+        resetToken,
+      },
+    });
+
+    return { message: 'OTP verified successfully.', resetToken };
   }
 
   async resetPassword(token: string, password: string) {
-    const reset = await prisma.passwordReset.findUnique({
-      where: { token },
+    const reset = await prisma.passwordReset.findFirst({
+      where: { resetToken: token, isUsed: false, isOtpVerified: true },
       include: { user: true },
     });
 
-    if (!reset || reset.isUsed || new Date() > reset.expiresAt) {
-      throw Object.assign(new Error('Invalid or expired reset token'), { statusCode: 400 });
+    if (!reset || new Date() > reset.expiresAt) {
+      throw Object.assign(new Error('Invalid or expired password reset session. Please request a new OTP.'), { statusCode: 400 });
     }
 
     const { isValid, message } = validatePasswordStrength(password);
@@ -310,9 +373,18 @@ export class AuthService {
         where: { userId: reset.userId },
         data: { isRevoked: true },
       }),
+      prisma.activityLog.create({
+        data: {
+          userId: reset.userId,
+          action: 'PASSWORD_RESET',
+          resource: 'user',
+          resourceId: reset.userId,
+          details: 'Password reset completed via Gmail OTP authentication',
+        },
+      }),
     ]);
 
-    return { message: 'Password reset successfully. Please log in with your new password.' };
+    return { message: 'Password updated successfully. You can now log in with your new password.' };
   }
 
   async changePassword(userId: string, currentPassword: string, newPassword: string) {

@@ -418,18 +418,24 @@ model EmailVerification {
 }
 
 model PasswordReset {
-  id        String   @id @default(uuid())
-  userId    String
-  token     String   @unique
-  expiresAt DateTime
-  isUsed    Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id            String    @id @default(uuid())
+  userId        String
+  otp           String?
+  otpExpiresAt  DateTime?
+  attempts      Int       @default(0)
+  isOtpVerified Boolean   @default(false)
+  resetToken    String?   @unique
+  expiresAt     DateTime
+  isUsed        Boolean   @default(false)
+  createdAt     DateTime  @default(now())
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([token])
+  @@index([userId])
+  @@index([resetToken])
   @@map("password_resets")
 }
+
 
 model RefreshToken {
   id        String   @id @default(uuid())

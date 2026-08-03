@@ -6,80 +6,66 @@ import {
   ShieldCheck,
   CheckCircle2,
   Lock,
-  ArrowRight,
-  ArrowLeft,
   RotateCcw,
   AlertCircle,
   Eye,
   EyeOff,
-  UserCheck,
   Send,
   ExternalLink,
-  GraduationCap
+  Check,
+  AlertTriangle
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { CSE18_STUDENTS, StudentRecord } from '../../store/authSlice';
 import { authService } from '../../services/auth.service';
 
 interface ForgotPasswordModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialEmail?: string;
   initialStudentId?: string;
-  onSuccessLogin?: (studentId: string, newPass: string) => void;
+  onSuccessLogin?: (emailOrStudentId: string, newPass: string) => void;
 }
 
 export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
   isOpen,
   onClose,
+  initialEmail = '',
   initialStudentId = '',
   onSuccessLogin,
 }) => {
+  // Step 1: Request OTP | Step 2: Verify OTP | Step 3: Set New Password | Step 4: Success
   const [step, setStep] = useState<number>(1);
-  const [studentIdInput, setStudentIdInput] = useState<string>(initialStudentId);
-  const [foundStudent, setFoundStudent] = useState<StudentRecord | null>(null);
-  
-  // Real Gmail Address input
-  const [gmailAddress, setGmailAddress] = useState<string>('');
+  const [emailInput, setEmailInput] = useState<string>(initialEmail || initialStudentId);
 
-  // OTP State (Stored in memory for strict verification against what email received)
+  // OTP State
   const [otpInput, setOtpInput] = useState<string>('');
-  const [expectedOtpCode, setExpectedOtpCode] = useState<string>('');
-  const [otpExpiryTimer, setOtpExpiryTimer] = useState<number>(300); // 5 mins
-  const [resendTimer, setResendTimer] = useState<number>(60);
+  const [resetToken, setResetToken] = useState<string>('');
+  const [otpExpiryTimer, setOtpExpiryTimer] = useState<number>(300); // 5 minutes (300s)
+  const [resendTimer, setResendTimer] = useState<number>(60); // 60 seconds
   const [canResend, setCanResend] = useState<boolean>(false);
-  const [otpAttemptsLeft, setOtpAttemptsLeft] = useState<number>(3);
+  const [attemptsLeft, setAttemptsLeft] = useState<number>(5);
 
   // Password State
   const [newPassword, setNewPassword] = useState<string>('');
   const [confirmPassword, setConfirmPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
-  
+
   // Loading & Error States
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Sync initialStudentId when modal opens
+  // Sync initial email
   useEffect(() => {
-    if (isOpen && initialStudentId) {
-      setStudentIdInput(initialStudentId);
-      const search = initialStudentId.trim().toLowerCase();
-      const match = CSE18_STUDENTS.find(
-        (s) =>
-          s.studentId.toLowerCase() === search ||
-          s.studentId.replace(/^0+/, '') === search.replace(/^0+/, '') ||
-          s.email.toLowerCase() === search
-      );
-      if (match) {
-        setFoundStudent(match);
-        setGmailAddress(match.email);
-      }
+    if (isOpen) {
+      if (initialEmail) setEmailInput(initialEmail);
+      else if (initialStudentId) setEmailInput(initialStudentId);
     }
-  }, [isOpen, initialStudentId]);
+  }, [isOpen, initialEmail, initialStudentId]);
 
-  // Timers countdown
+  // Timers countdown for Step 2
   useEffect(() => {
     let interval: any = null;
-    if (step === 4) {
+    if (step === 2) {
       interval = setInterval(() => {
         setOtpExpiryTimer((prev) => (prev > 0 ? prev - 1 : 0));
         setResendTimer((prev) => {
@@ -96,18 +82,17 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
 
   const resetAllState = () => {
     setStep(1);
-    setStudentIdInput('');
-    setFoundStudent(null);
-    setGmailAddress('');
+    setEmailInput('');
     setOtpInput('');
-    setExpectedOtpCode('');
+    setResetToken('');
     setOtpExpiryTimer(300);
     setResendTimer(60);
     setCanResend(false);
-    setOtpAttemptsLeft(3);
+    setAttemptsLeft(5);
     setNewPassword('');
     setConfirmPassword('');
     setErrorMsg(null);
+    setLoading(false);
   };
 
   const handleClose = () => {
@@ -115,136 +100,147 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
     onClose();
   };
 
-  // STEP 1: Search Student ID
-  const handleVerifyStudentId = (e: React.FormEvent) => {
+  // Password strength checks
+  const passwordCriteria = {
+    minLength: newPassword.length >= 8,
+    hasUpper: /[A-Z]/.test(newPassword),
+    hasLower: /[a-z]/.test(newPassword),
+    hasNumber: /[0-9]/.test(newPassword),
+    hasSpecial: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(newPassword),
+  };
+  const isPasswordValid = Object.values(passwordCriteria).every(Boolean);
+
+  // STEP 1: Request 6-Digit OTP from Backend / Gmail
+  const handleRequestOTP = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
-    const search = studentIdInput.trim().toLowerCase();
 
-    if (!search) {
-      setErrorMsg('Please enter your Student ID or Email');
+    const cleanEmail = emailInput.trim().toLowerCase();
+    if (!cleanEmail) {
+      setErrorMsg('Please enter your registered email address.');
       return;
     }
 
     setLoading(true);
-
-    setTimeout(() => {
-      const student = CSE18_STUDENTS.find(
-        (s) =>
-          s.studentId.toLowerCase() === search ||
-          s.studentId.replace(/^0+/, '') === search.replace(/^0+/, '') ||
-          s.email.toLowerCase() === search ||
-          s.name.toLowerCase().includes(search)
-      );
-
-      if (!student) {
-        setErrorMsg('No student found in CSE 18th Batch database for this Student ID or Email.');
-        setLoading(false);
-        return;
-      }
-
-      setFoundStudent(student);
-      setGmailAddress(student.email);
-      setStep(2); // Move to Step 2: Confirm Gmail Address
-      setLoading(false);
-    }, 350);
-  };
-
-  // STEP 3 & 4: Dispatch Real OTP to Gmail Address
-  const handleSendOTP = async () => {
-    if (!foundStudent || !gmailAddress.trim()) {
-      setErrorMsg('Please provide a valid Gmail address.');
-      return;
-    }
-    setLoading(true);
-    setErrorMsg(null);
-
-    // Generate real 6-digit OTP code
-    const realCode = Math.floor(100000 + Math.random() * 900000).toString();
-    setExpectedOtpCode(realCode);
-    setOtpExpiryTimer(300);
-    setResendTimer(60);
-    setCanResend(false);
-    setOtpAttemptsLeft(3);
 
     try {
-      // Call backend auth API to trigger real Nodemailer SMTP dispatch
-      await authService.forgotPassword(gmailAddress.trim()).catch(() => {});
-    } catch {}
+      const response = await authService.forgotPassword(cleanEmail);
+      setLoading(false);
+      setStep(2); // Advance to OTP verification screen
+      setOtpExpiryTimer(300); // 5 minutes
+      setResendTimer(60); // 60 seconds
+      setCanResend(false);
+      setAttemptsLeft(5);
 
-    setLoading(false);
-    setStep(4); // Move to Step 4: User MUST copy code from their Gmail inbox
-
-    toast.success(
-      `📧 Real OTP Code dispatched to: ${gmailAddress.trim()}. Check your Gmail app/inbox!`,
-      { duration: 8000, icon: '📩' }
-    );
+      toast.success(
+        response.message || `📧 6-digit OTP code sent to ${cleanEmail}. Check your Gmail inbox!`,
+        { duration: 6000, icon: '📩' }
+      );
+    } catch (err: any) {
+      setLoading(false);
+      const apiError = err?.response?.data?.message || err?.message || 'Failed to send OTP. Please try again.';
+      setErrorMsg(apiError);
+      toast.error(apiError);
+    }
   };
 
+  // Resend OTP handler
   const handleResendOTP = async () => {
-    if (!canResend || !foundStudent) return;
-    await handleSendOTP();
+    if (!canResend || loading) return;
+    setErrorMsg(null);
+    setLoading(true);
+
+    try {
+      const response = await authService.forgotPassword(emailInput.trim().toLowerCase());
+      setLoading(false);
+      setOtpExpiryTimer(300);
+      setResendTimer(60);
+      setCanResend(false);
+      setAttemptsLeft(5);
+
+      toast.success(
+        response.message || '📩 New OTP code resent to your Gmail address.',
+        { duration: 5000 }
+      );
+    } catch (err: any) {
+      setLoading(false);
+      const apiError = err?.response?.data?.message || err?.message || 'Failed to resend OTP.';
+      setErrorMsg(apiError);
+    }
   };
 
-  // STEP 4 & 5: Verify OTP Code typed by user from Gmail
-  const handleVerifyOTP = (e: React.FormEvent) => {
+  // STEP 2: Verify OTP Code
+  const handleVerifyOTP = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
     if (otpExpiryTimer <= 0) {
-      setErrorMsg('OTP code has expired. Please click Resend OTP.');
+      setErrorMsg('OTP code has expired (5-minute limit). Please click Resend OTP.');
       return;
     }
 
-    if (otpAttemptsLeft <= 0) {
-      setErrorMsg('Maximum OTP verification attempts reached. Please request a new OTP.');
+    if (attemptsLeft <= 0) {
+      setErrorMsg('Maximum 5 incorrect attempts reached. Please click Resend OTP to request a new code.');
       return;
     }
 
     const cleanOtp = otpInput.trim();
-    
-    // Strict comparison against code sent to email
-    if (cleanOtp !== expectedOtpCode && cleanOtp !== '123456') {
-      const remaining = otpAttemptsLeft - 1;
-      setOtpAttemptsLeft(remaining);
-      setErrorMsg(
-        remaining > 0
-          ? `Invalid OTP code. Please open your Gmail inbox (${gmailAddress}), copy the 6-digit code, and paste it here. ${remaining} attempts remaining.`
-          : 'Invalid OTP code. Maximum attempts reached. Please request a new OTP.'
-      );
+    if (cleanOtp.length !== 6) {
+      setErrorMsg('Please enter the complete 6-digit OTP code.');
       return;
     }
 
-    // Step 5: Verification Success
     setLoading(true);
-    setTimeout(() => {
+
+    try {
+      const response = await authService.verifyResetOtp(emailInput.trim().toLowerCase(), cleanOtp);
       setLoading(false);
-      setStep(6); // Step 6: Create New Password
-      toast.success('Gmail OTP verified successfully! Enter your new password.');
-    }, 450);
+      
+      const token = response.data?.resetToken || (response as any).resetToken;
+      if (token) {
+        setResetToken(token);
+        setStep(3); // Advance to Create New Password screen
+        toast.success('Gmail OTP verified successfully! Create your new password.');
+      } else {
+        throw new Error('Verification token missing. Please try again.');
+      }
+    } catch (err: any) {
+      setLoading(false);
+      const apiError = err?.response?.data?.message || err?.message || 'Invalid OTP code.';
+      setAttemptsLeft((prev) => Math.max(0, prev - 1));
+      setErrorMsg(apiError);
+      toast.error(apiError);
+    }
   };
 
-  // STEP 6: Update Password
-  const handleResetPasswordSubmit = (e: React.FormEvent) => {
+  // STEP 3: Create & Save New Password
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
-    if (newPassword.length < 6) {
-      setErrorMsg('Password must be at least 6 characters long');
+    if (!isPasswordValid) {
+      setErrorMsg('Password does not meet all security requirements.');
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setErrorMsg('Passwords do not match');
+      setErrorMsg('New password and confirm password do not match.');
       return;
     }
 
     setLoading(true);
-    setTimeout(() => {
+
+    try {
+      const response = await authService.resetPassword(resetToken, newPassword);
       setLoading(false);
-      setStep(7); // Step 7: Password Updated
-      toast.success('Password updated successfully!');
-    }, 500);
+      setStep(4); // Advance to Success Screen
+      toast.success(response.message || 'Password updated successfully!');
+    } catch (err: any) {
+      setLoading(false);
+      const apiError = err?.response?.data?.message || err?.message || 'Failed to update password. Please try again.';
+      setErrorMsg(apiError);
+      toast.error(apiError);
+    }
   };
 
   const formatTime = (seconds: number) => {
@@ -254,67 +250,69 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-      <div className="relative w-full max-w-lg overflow-hidden bg-[#0B2D3B] border border-cyan-500/40 rounded-2xl shadow-2xl text-slate-100 animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+      <div className="relative w-full max-w-md overflow-hidden bg-[#0A192F] border border-cyan-500/30 rounded-2xl shadow-2xl text-slate-100 animate-in fade-in zoom-in-95 duration-200">
         
         {/* Header Bar */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-cyan-500/20 bg-slate-900/60">
-          <div className="flex items-center space-x-2">
-            <KeyRound className="w-5 h-5 text-emerald-400" />
-            <h3 className="font-bold text-white text-base">Real Gmail OTP Password Recovery</h3>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-cyan-500/20 bg-slate-900/80">
+          <div className="flex items-center space-x-2.5">
+            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+              <KeyRound className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-bold text-white text-base">Password Recovery</h3>
+              <p className="text-[11px] text-cyan-400 font-medium">Gmail OTP Authentication</p>
+            </div>
           </div>
           <button
             onClick={handleClose}
-            className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Step Indicator Bar */}
-        <div className="px-6 py-2.5 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between text-xs text-slate-400">
-          <span className="font-bold text-emerald-400">Step {step} of 7</span>
+        <div className="px-6 py-2.5 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between text-xs">
+          <span className="font-bold text-emerald-400">Step {step} of 4</span>
           <span className="truncate text-slate-300 font-medium">
-            {step === 1 && '1. Enter Student ID'}
-            {step === 2 && '2. Specify Gmail Address'}
-            {step === 3 && '3. Dispatching Real Email'}
-            {step === 4 && '4. Get OTP from Gmail Inbox'}
-            {step === 5 && '5. OTP Verification'}
-            {step === 6 && '6. Create New Password'}
-            {step === 7 && '7. Password Changed!'}
+            {step === 1 && '1. Enter Registered Email'}
+            {step === 2 && '2. Verify Gmail 6-Digit OTP'}
+            {step === 3 && '3. Create New Password'}
+            {step === 4 && '4. Password Updated!'}
           </span>
         </div>
 
         {/* Body Content */}
         <div className="p-6">
           {errorMsg && (
-            <div className="mb-4 p-3 rounded-lg bg-red-500/20 border border-red-500/40 text-red-200 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
-              <span>{errorMsg}</span>
+            <div className="mb-4 p-3 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-200 text-xs flex items-start gap-2.5 animate-in fade-in duration-200">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+              <span className="leading-relaxed">{errorMsg}</span>
             </div>
           )}
 
-          {/* STEP 1: Search Student ID */}
+          {/* STEP 1: Enter Registered Email */}
           {step === 1 && (
-            <form onSubmit={handleVerifyStudentId} className="space-y-4">
-              <p className="text-xs text-slate-300">
-                Enter your official CSE 18th Batch <strong>Student ID</strong> to request an OTP sent directly to your Gmail inbox.
+            <form onSubmit={handleRequestOTP} className="space-y-4">
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Enter your registered University or Gmail email address. We will generate and send a 6-digit OTP code directly to your email inbox.
               </p>
 
               <div>
-                <label className="block text-xs font-bold text-cyan-300 mb-1 uppercase tracking-wider">
-                  Student ID / Edu Email
+                <label className="block text-xs font-bold text-cyan-300 mb-1.5 uppercase tracking-wider">
+                  Registered Email Address
                 </label>
                 <div className="relative">
                   <input
-                    type="text"
-                    value={studentIdInput}
-                    onChange={(e) => setStudentIdInput(e.target.value)}
-                    placeholder="e.g. 6224205101006"
-                    className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white text-sm focus:border-emerald-400 outline-none font-mono"
+                    type="email"
+                    value={emailInput}
+                    onChange={(e) => setEmailInput(e.target.value)}
+                    placeholder="e.g. student@kyau.edu.bd or user@gmail.com"
+                    className="w-full pl-10 pr-4 py-3 bg-slate-900/90 border border-slate-700 rounded-xl text-white text-sm focus:border-emerald-400 outline-none transition-colors"
                     required
                   />
-                  <UserCheck className="absolute right-3.5 top-3.5 w-4 h-4 text-slate-400" />
+                  <Mail className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
                 </div>
               </div>
 
@@ -322,80 +320,30 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
                 <button
                   type="button"
                   onClick={handleClose}
-                  className="px-4 py-2 text-xs font-medium text-slate-400 hover:text-white"
+                  className="px-4 py-2.5 text-xs font-medium text-slate-400 hover:text-white"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="px-5 py-2.5 text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 rounded-lg transition-colors flex items-center gap-1.5 shadow-lg shadow-emerald-500/20"
+                  className="px-5 py-2.5 text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 disabled:opacity-50 rounded-xl transition-all flex items-center gap-1.5 shadow-lg shadow-emerald-500/20"
                 >
-                  {loading ? 'Searching...' : 'Search Account'}
-                  <ArrowRight className="w-3.5 h-3.5" />
+                  {loading ? 'Sending OTP...' : 'Send OTP to My Email'}
+                  <Send className="w-3.5 h-3.5" />
                 </button>
               </div>
             </form>
           )}
 
-          {/* STEP 2: Confirm Real Gmail Address */}
-          {step === 2 && foundStudent && (
-            <div className="space-y-4">
-              <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-700 space-y-1">
-                <p className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
-                  <GraduationCap className="w-4 h-4" /> KYAU Student Profile Matched
-                </p>
-                <p className="text-base font-extrabold text-white">{foundStudent.name}</p>
-                <p className="text-xs text-slate-300 font-mono">ID: {foundStudent.studentId} • CSE 18th Batch</p>
-              </div>
-
-              <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-400/30 space-y-2">
-                <label className="block text-xs font-bold text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
-                  <Mail className="w-4 h-4 text-red-400" /> Enter Your Real Gmail Address to Receive OTP:
-                </label>
-                <input
-                  type="email"
-                  value={gmailAddress}
-                  onChange={(e) => setGmailAddress(e.target.value)}
-                  placeholder="e.g. mdsojibahmed544@gmail.com"
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono text-xs focus:border-emerald-400 outline-none"
-                  required
-                />
-                <p className="text-slate-400 text-[11px]">
-                  The 6-digit security OTP code will be sent to this Gmail address. You will open your Gmail app/inbox and copy the code.
-                </p>
-              </div>
-
-              <div className="pt-2 flex justify-between">
-                <button
-                  type="button"
-                  onClick={() => setStep(1)}
-                  className="px-4 py-2 text-xs font-medium text-slate-300 hover:text-white flex items-center gap-1"
-                >
-                  <ArrowLeft className="w-3.5 h-3.5" /> Back
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSendOTP}
-                  disabled={loading}
-                  className="px-5 py-2.5 text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 rounded-lg transition-colors flex items-center gap-1.5 shadow-lg shadow-emerald-500/20"
-                >
-                  {loading ? 'Dispatching...' : 'Send OTP to My Gmail'}
-                  <Send className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 4: Strict User Input of OTP from Gmail Inbox */}
-          {step === 4 && foundStudent && (
+          {/* STEP 2: Verify 6-Digit Gmail OTP */}
+          {step === 2 && (
             <form onSubmit={handleVerifyOTP} className="space-y-4">
               
-              {/* Notice Card */}
-              <div className="p-4 rounded-xl bg-slate-900 border border-emerald-400/30 text-xs space-y-2">
+              <div className="p-3.5 rounded-xl bg-slate-900 border border-emerald-400/30 text-xs space-y-2">
                 <div className="flex items-center justify-between text-emerald-400 font-bold">
                   <span className="flex items-center gap-1.5">
-                    <Mail className="w-4 h-4 text-red-400" /> Open Your Gmail Inbox
+                    <Mail className="w-4 h-4 text-rose-400" /> Check Your Gmail Inbox
                   </span>
                   <a
                     href="https://mail.google.com"
@@ -407,20 +355,17 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
                   </a>
                 </div>
                 <p className="text-slate-300 leading-relaxed">
-                  An email containing your 6-digit OTP code was sent to:
+                  A 6-digit verification code has been dispatched to:
                 </p>
-                <p className="font-mono text-emerald-300 font-bold text-sm bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800">
-                  {gmailAddress}
-                </p>
-                <p className="text-[11px] text-slate-400">
-                  Go to your Gmail app or mail.google.com, open the email from KYAU CSE 18th Batch Portal, copy the 6-digit code, and paste it into the box below.
+                <p className="font-mono text-emerald-300 font-bold text-xs bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 break-all">
+                  {emailInput}
                 </p>
               </div>
 
-              {/* Strict Code Input Field (No code banner on screen) */}
+              {/* 6-Digit OTP Code Input */}
               <div className="space-y-1.5">
                 <label className="block text-center text-xs font-bold text-cyan-300 uppercase tracking-wider">
-                  Type 6-Digit Code from Gmail Inbox:
+                  Type 6-Digit Security Code:
                 </label>
                 <input
                   type="text"
@@ -433,44 +378,54 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
                 />
               </div>
 
-              {/* Timers & Attempts */}
-              <div className="flex items-center justify-between text-xs text-slate-400 px-1">
-                <span>OTP Expire: <strong className="text-emerald-400 font-mono">{formatTime(otpExpiryTimer)}</strong></span>
-                <span>Attempts Remaining: <strong className="text-amber-400 font-mono">{otpAttemptsLeft}/3</strong></span>
+              {/* Timers & Attempts Status */}
+              <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 space-y-1.5 text-xs">
+                <div className="flex items-center justify-between text-slate-300">
+                  <span>OTP Expiration:</span>
+                  <strong className={`font-mono font-bold ${otpExpiryTimer < 60 ? 'text-rose-400 animate-pulse' : 'text-emerald-400'}`}>
+                    {formatTime(otpExpiryTimer)}
+                  </strong>
+                </div>
+                <div className="flex items-center justify-between text-slate-300">
+                  <span>Attempts Remaining:</span>
+                  <strong className={`font-mono font-bold ${attemptsLeft <= 2 ? 'text-amber-400' : 'text-slate-200'}`}>
+                    {attemptsLeft} / 5
+                  </strong>
+                </div>
               </div>
 
-              {/* Resend Button */}
+              {/* Resend Button with 60s Countdown */}
               <div className="text-center pt-1">
                 <button
                   type="button"
                   disabled={!canResend || loading}
                   onClick={handleResendOTP}
-                  className="text-xs font-medium text-cyan-400 hover:text-cyan-300 disabled:text-slate-600 inline-flex items-center gap-1"
+                  className="text-xs font-medium text-cyan-400 hover:text-cyan-300 disabled:text-slate-600 inline-flex items-center gap-1.5 transition-colors"
                 >
-                  <RotateCcw className="w-3 h-3" />
-                  {canResend ? 'Resend Email to Gmail' : `Resend available in ${resendTimer}s`}
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  {canResend ? 'Resend OTP to Email' : `Resend OTP available in ${resendTimer}s`}
                 </button>
               </div>
 
               <div className="pt-2">
                 <button
                   type="submit"
-                  disabled={loading || otpInput.length !== 6}
+                  disabled={loading || otpInput.length !== 6 || attemptsLeft <= 0}
                   className="w-full py-3.5 text-xs font-black text-slate-950 bg-emerald-400 hover:bg-emerald-300 disabled:opacity-50 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
                 >
-                  {loading ? 'Verifying Gmail Code...' : 'Verify Gmail OTP Code'}
+                  {loading ? 'Verifying Code...' : 'Verify Gmail OTP Code'}
                   <ShieldCheck className="w-4 h-4" />
                 </button>
               </div>
             </form>
           )}
 
-          {/* STEP 6: Create New Password */}
-          {step === 6 && (
+          {/* STEP 3: Create New Password */}
+          {step === 3 && (
             <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
-              <div className="p-3.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-xs text-emerald-300 font-semibold flex items-center gap-2">
-                <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-400" />
-                <span>Gmail OTP Verified! Enter your new password below.</span>
+              <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-xs text-emerald-300 font-semibold flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                <span>OTP Verified! Enter your new password below.</span>
               </div>
 
               <div>
@@ -510,11 +465,40 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
                 />
               </div>
 
+              {/* Password Strength Requirements Checklist */}
+              <div className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-2">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  Password Strength Requirements:
+                </p>
+                <div className="grid grid-cols-2 gap-1.5 text-xs">
+                  <div className={`flex items-center gap-1.5 ${passwordCriteria.minLength ? 'text-emerald-400' : 'text-slate-400'}`}>
+                    {passwordCriteria.minLength ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+                    <span>Min 8 characters</span>
+                  </div>
+                  <div className={`flex items-center gap-1.5 ${passwordCriteria.hasUpper ? 'text-emerald-400' : 'text-slate-400'}`}>
+                    {passwordCriteria.hasUpper ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+                    <span>Uppercase (A-Z)</span>
+                  </div>
+                  <div className={`flex items-center gap-1.5 ${passwordCriteria.hasLower ? 'text-emerald-400' : 'text-slate-400'}`}>
+                    {passwordCriteria.hasLower ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+                    <span>Lowercase (a-z)</span>
+                  </div>
+                  <div className={`flex items-center gap-1.5 ${passwordCriteria.hasNumber ? 'text-emerald-400' : 'text-slate-400'}`}>
+                    {passwordCriteria.hasNumber ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+                    <span>Number (0-9)</span>
+                  </div>
+                  <div className={`flex items-center gap-1.5 col-span-2 ${passwordCriteria.hasSpecial ? 'text-emerald-400' : 'text-slate-400'}`}>
+                    {passwordCriteria.hasSpecial ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+                    <span>Special character (!@#$%^&*)</span>
+                  </div>
+                </div>
+              </div>
+
               <div className="pt-2">
                 <button
                   type="submit"
-                  disabled={loading}
-                  className="w-full py-3.5 text-xs font-black text-white bg-emerald-500 hover:bg-emerald-600 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
+                  disabled={loading || !isPasswordValid || newPassword !== confirmPassword}
+                  className="w-full py-3.5 text-xs font-black text-slate-950 bg-emerald-400 hover:bg-emerald-300 disabled:opacity-50 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
                 >
                   {loading ? 'Saving Password...' : 'Save New Password & Complete'}
                   <Lock className="w-4 h-4" />
@@ -523,24 +507,23 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
             </form>
           )}
 
-          {/* STEP 7: Password Updated Successfully */}
-          {step === 7 && (
+          {/* STEP 4: Password Reset Completed */}
+          {step === 4 && (
             <div className="text-center space-y-4 py-4">
-              <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center animate-bounce shadow-xl shadow-emerald-500/20">
+              <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center animate-bounce shadow-xl shadow-emerald-500/20 border border-emerald-500/30">
                 <CheckCircle2 className="w-10 h-10" />
               </div>
               <div>
                 <h4 className="text-lg font-black text-white">Password Updated Successfully!</h4>
-                <p className="text-xs text-slate-300 mt-1">
-                  Your KYAU CSE 18th Batch portal password has been updated. You can now log in immediately.
+                <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                  Your KYAU CSE 18th Batch portal password has been updated securely. You can now log in immediately with your new password.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => {
-                  const sId = foundStudent?.studentId || studentIdInput;
                   handleClose();
-                  if (onSuccessLogin && sId) onSuccessLogin(sId, newPassword);
+                  if (onSuccessLogin) onSuccessLogin(emailInput, newPassword);
                 }}
                 className="w-full py-3.5 text-xs font-black text-slate-950 bg-emerald-400 hover:bg-emerald-300 rounded-xl transition-all shadow-lg shadow-emerald-500/20"
               >
