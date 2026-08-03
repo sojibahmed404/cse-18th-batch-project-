@@ -28,6 +28,7 @@ import {
 import { toast } from 'react-hot-toast';
 import { EditProfileModal } from '../components/profile/EditProfileModal';
 import { LoginHistoryModal } from '../components/profile/LoginHistoryModal';
+import { ChangeAvatarModal } from '../components/profile/ChangeAvatarModal';
 import { ForgotPasswordModal } from '../components/auth/ForgotPasswordModal';
 import { Avatar } from '../components/ui/Avatar';
 
@@ -38,6 +39,7 @@ export function ProfilePage() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isLoginHistoryOpen, setIsLoginHistoryOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
 
   // Profile State (initialized from auth user)
   const student = user?.student;
@@ -112,7 +114,7 @@ export function ProfilePage() {
 
         <div className="relative z-10 flex flex-col md:flex-row items-center md:items-start gap-6">
           {/* Avatar Container */}
-          <div className="relative group shrink-0">
+          <div className="relative group shrink-0 cursor-pointer" onClick={() => setIsAvatarModalOpen(true)}>
             <div className="p-1 rounded-full bg-gradient-to-tr from-emerald-400 to-cyan-400 shadow-xl">
               <Avatar
                 src={profileData.avatar}
@@ -121,11 +123,15 @@ export function ProfilePage() {
               />
             </div>
             <button
-              onClick={() => setIsEditModalOpen(true)}
-              className="absolute bottom-1 right-1 p-2 rounded-full bg-slate-900 text-emerald-400 border border-emerald-400/40 shadow-lg hover:scale-110 transition-all"
-              title="Change Profile Picture"
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsAvatarModalOpen(true);
+              }}
+              className="absolute bottom-1 right-1 p-2.5 rounded-full bg-slate-900 text-emerald-400 border border-emerald-400/40 shadow-lg hover:scale-110 transition-all"
+              title="Upload / Change Profile Picture"
             >
-              <Camera size={14} />
+              <Camera size={15} />
             </button>
           </div>
 
@@ -464,6 +470,13 @@ export function ProfilePage() {
         onClose={() => setIsPasswordModalOpen(false)}
         initialEmail={profileData.universityEmail}
         initialStudentId={profileData.studentId}
+      />
+
+      <ChangeAvatarModal
+        isOpen={isAvatarModalOpen}
+        onClose={() => setIsAvatarModalOpen(false)}
+        currentAvatar={profileData.avatar}
+        onSaveAvatar={(newAvatar) => setProfileData((prev) => ({ ...prev, avatar: newAvatar }))}
       />
     </div>
   );
