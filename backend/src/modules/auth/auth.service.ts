@@ -251,13 +251,16 @@ export class AuthService {
   async forgotPassword(input: string) {
     const cleanInput = input.trim().toLowerCase();
     const studentIdClean = cleanInput.replace(/^0+/, '');
+    const withLeadingZero = cleanInput.startsWith('0') ? cleanInput : `0${cleanInput}`;
 
     const user = await prisma.user.findFirst({
       where: {
         OR: [
           { email: cleanInput },
+          { email: withLeadingZero },
           { student: { studentId: cleanInput } },
           { student: { studentId: studentIdClean } },
+          { student: { studentId: withLeadingZero } },
           { student: { personalEmail: cleanInput } },
         ],
       },
@@ -316,13 +319,16 @@ export class AuthService {
   async verifyResetOTP(input: string, otp: string) {
     const cleanInput = input.trim().toLowerCase();
     const studentIdClean = cleanInput.replace(/^0+/, '');
+    const withLeadingZero = cleanInput.startsWith('0') ? cleanInput : `0${cleanInput}`;
 
     const user = await prisma.user.findFirst({
       where: {
         OR: [
           { email: cleanInput },
+          { email: withLeadingZero },
           { student: { studentId: cleanInput } },
           { student: { studentId: studentIdClean } },
+          { student: { studentId: withLeadingZero } },
           { student: { personalEmail: cleanInput } },
         ],
       },
