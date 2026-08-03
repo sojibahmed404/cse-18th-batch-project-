@@ -10,6 +10,23 @@ import { env } from './config/env';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import { logger } from './config/logger';
 
+// Module Routes
+import authRoutes from './modules/auth/auth.routes';
+import usersRoutes from './modules/users/users.routes';
+import studentsRoutes from './modules/students/students.routes';
+import teachersRoutes from './modules/teachers/teachers.routes';
+import semestersRoutes from './modules/semesters/semesters.routes';
+import coursesRoutes from './modules/courses/courses.routes';
+import assignmentsRoutes from './modules/assignments/assignments.routes';
+import noticesRoutes from './modules/notices/notices.routes';
+import routinesRoutes from './modules/routines/routines.routes';
+import eventsRoutes from './modules/events/events.routes';
+import galleryRoutes from './modules/gallery/gallery.routes';
+import notificationsRoutes from './modules/notifications/notifications.routes';
+import analyticsRoutes from './modules/analytics/analytics.routes';
+import searchRoutes from './modules/search/search.routes';
+import uploadRoutes from './modules/upload/upload.routes';
+
 const app = express();
 
 app.set('trust proxy', 1);
@@ -27,6 +44,13 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
+// Body Parsers & Compression (must come before routes)
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(cookieParser(env.COOKIE_SECRET));
+app.use(compression());
+
+// Rate limiters
 const limiter = rateLimit({
   windowMs: env.RATE_LIMIT_WINDOW_MS,
   max: env.RATE_LIMIT_MAX_REQUESTS,
@@ -35,18 +59,6 @@ const limiter = rateLimit({
   message: { success: false, message: 'Too many requests, please try again later.' },
 });
 app.use('/api/', limiter);
-
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: { success: false, message: 'Too many authentication attempts.' },
-});
-app.use('/api/v1/auth/', authLimiter);
-
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(cookieParser(env.COOKIE_SECRET));
-app.use(compression());
 
 if (env.NODE_ENV !== 'test') {
   app.use(morgan('combined', {
@@ -75,6 +87,24 @@ const swaggerSpec = {
 };
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
+// Register API v1 Module Routes
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/users', usersRoutes);
+app.use('/api/v1/students', studentsRoutes);
+app.use('/api/v1/teachers', teachersRoutes);
+app.use('/api/v1/semesters', semestersRoutes);
+app.use('/api/v1/courses', coursesRoutes);
+app.use('/api/v1/assignments', assignmentsRoutes);
+app.use('/api/v1/notices', noticesRoutes);
+app.use('/api/v1/routines', routinesRoutes);
+app.use('/api/v1/events', eventsRoutes);
+app.use('/api/v1/gallery', galleryRoutes);
+app.use('/api/v1/notifications', notificationsRoutes);
+app.use('/api/v1/analytics', analyticsRoutes);
+app.use('/api/v1/search', searchRoutes);
+app.use('/api/v1/upload', uploadRoutes);
+
+// Error handlers
 app.use(notFoundHandler);
 app.use(errorHandler);
 
