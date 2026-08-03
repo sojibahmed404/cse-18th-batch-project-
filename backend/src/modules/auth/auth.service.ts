@@ -274,7 +274,7 @@ export class AuthService {
       );
     }
 
-    const targetEmail = user.email;
+    const targetEmail = user.student?.personalEmail || user.email;
 
     // Invalidate existing unused password resets
     await prisma.passwordReset.updateMany({

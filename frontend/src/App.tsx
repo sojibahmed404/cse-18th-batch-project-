@@ -13,6 +13,7 @@ import CoursesPage from './pages/CoursesPage';
 import NoticesPage from './pages/NoticesPage';
 import RoutinesPage from './pages/RoutinesPage';
 import CoverPagePage from './pages/assignments/CoverPagePage';
+import ProfilePage from './pages/ProfilePage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -37,6 +38,7 @@ export default function App() {
               <Route path="/" element={<AppLayout />}>
                 <Route index element={<Navigate to="/dashboard" replace />} />
                 <Route path="dashboard" element={<DashboardPage />} />
+                <Route path="profile" element={<ProfilePage />} />
                 <Route path="courses" element={<CoursesPage />} />
                 <Route path="notices" element={<NoticesPage />} />
                 <Route path="routines" element={<RoutinesPage />} />
