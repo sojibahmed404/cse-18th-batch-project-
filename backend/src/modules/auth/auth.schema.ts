@@ -33,11 +33,11 @@ export const loginSchema = z.object({
 });
 
 export const forgotPasswordSchema = z.object({
-  email: z.string().email('Invalid email format'),
+  email: z.string().min(1, 'Email or Student ID is required'),
 });
 
 export const verifyResetOTPSchema = z.object({
-  email: z.string().email('Invalid email format'),
+  email: z.string().min(1, 'Email or Student ID is required'),
   otp: z.string().length(6, 'OTP must be 6 digits').regex(/^[0-9]+$/, 'OTP must be numeric'),
 });
 

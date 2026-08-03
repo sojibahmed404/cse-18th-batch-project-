@@ -125,6 +125,9 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
 
     try {
       const response = await authService.forgotPassword(cleanEmail);
+      const targetEmail = response.data?.email || (response as any).email || cleanEmail;
+      const devOtp = response.data?.devOtp || (response as any).devOtp;
+      setEmailInput(targetEmail);
       setLoading(false);
       setStep(2); // Advance to OTP verification screen
       setOtpExpiryTimer(300); // 5 minutes
@@ -133,9 +136,12 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
       setAttemptsLeft(5);
 
       toast.success(
-        response.message || `📧 6-digit OTP code sent to ${cleanEmail}. Check your Gmail inbox!`,
+        response.message || `📧 6-digit OTP code sent to ${targetEmail}. Check your Gmail inbox!`,
         { duration: 6000, icon: '📩' }
       );
+      if (devOtp) {
+        toast(`🔑 [DEV MODE] Your OTP Code is: ${devOtp}`, { duration: 12000, icon: '🔑' });
+      }
     } catch (err: any) {
       setLoading(false);
       const apiError = err?.response?.data?.message || err?.message || 'Failed to send OTP. Please try again.';
@@ -152,6 +158,7 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
 
     try {
       const response = await authService.forgotPassword(emailInput.trim().toLowerCase());
+      const devOtp = response.data?.devOtp || (response as any).devOtp;
       setLoading(false);
       setOtpExpiryTimer(300);
       setResendTimer(60);
@@ -162,6 +169,9 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
         response.message || '📩 New OTP code resent to your Gmail address.',
         { duration: 5000 }
       );
+      if (devOtp) {
+        toast(`🔑 [DEV MODE] Your New OTP Code is: ${devOtp}`, { duration: 12000, icon: '🔑' });
+      }
     } catch (err: any) {
       setLoading(false);
       const apiError = err?.response?.data?.message || err?.message || 'Failed to resend OTP.';

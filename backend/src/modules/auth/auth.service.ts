@@ -77,7 +77,7 @@ export class AuthService {
     const emailSent = await sendEmail({
       to: email,
       subject: `Your OTP for CSE 18th Batch Portal: ${otp}`,
-      html: generateOTPEmailHTML(otp, name),
+      html: generateOTPEmailHTML(name, otp),
     });
 
     logger.info(`OTP sent to ${email} (sent=${emailSent})`);
@@ -248,15 +248,30 @@ export class AuthService {
     return { message: 'Logged out successfully' };
   }
 
-  async forgotPassword(email: string) {
-    const user = await prisma.user.findUnique({
-      where: { email },
+  async forgotPassword(input: string) {
+    const cleanInput = input.trim().toLowerCase();
+    const studentIdClean = cleanInput.replace(/^0+/, '');
+
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: cleanInput },
+          { student: { studentId: cleanInput } },
+          { student: { studentId: studentIdClean } },
+          { student: { personalEmail: cleanInput } },
+        ],
+      },
       include: { student: true },
     });
 
     if (!user) {
-      throw Object.assign(new Error('No registered account found with this email address.'), { statusCode: 404 });
+      throw Object.assign(
+        new Error('No registered account found with this Email or Student ID. Please check your input.'),
+        { statusCode: 404 }
+      );
     }
+
+    const targetEmail = user.email;
 
     // Invalidate existing unused password resets
     await prisma.passwordReset.updateMany({
@@ -281,21 +296,38 @@ export class AuthService {
 
     const name = user.student ? `${user.student.firstName} ${user.student.lastName}` : 'Student';
     const emailSent = await sendEmail({
-      to: email,
+      to: targetEmail,
       subject: `Your Password Reset OTP Code: ${otp} - CSE 18th Batch Portal`,
-      html: generateOTPEmailHTML(otp, name),
+      html: generateOTPEmailHTML(name, otp),
     });
 
-    logger.info(`Password reset OTP sent to ${email} (sent=${emailSent})`);
+    logger.info(`Password reset OTP sent to ${targetEmail} (sent=${emailSent})`);
     if (env.NODE_ENV === 'development') {
-      logger.info(`[DEV] Password Reset OTP for ${email}: ${otp}`);
+      logger.info(`[DEV] Password Reset OTP for ${targetEmail}: ${otp}`);
     }
 
-    return { message: '6-digit OTP code sent to your registered Gmail address', email };
+    return {
+      message: `6-digit OTP code sent to ${targetEmail}`,
+      email: targetEmail,
+      devOtp: env.NODE_ENV === 'development' ? otp : undefined,
+    };
   }
 
-  async verifyResetOTP(email: string, otp: string) {
-    const user = await prisma.user.findUnique({ where: { email } });
+  async verifyResetOTP(input: string, otp: string) {
+    const cleanInput = input.trim().toLowerCase();
+    const studentIdClean = cleanInput.replace(/^0+/, '');
+
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: cleanInput },
+          { student: { studentId: cleanInput } },
+          { student: { studentId: studentIdClean } },
+          { student: { personalEmail: cleanInput } },
+        ],
+      },
+    });
+
     if (!user) {
       throw Object.assign(new Error('User not found'), { statusCode: 404 });
     }

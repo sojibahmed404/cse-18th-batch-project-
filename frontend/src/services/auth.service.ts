@@ -21,7 +21,7 @@ export const authService = {
   },
 
   forgotPassword: async (email: string) => {
-    const { data } = await api.post<ApiResponse<{ email: string }>>('/auth/forgot-password', { email });
+    const { data } = await api.post<ApiResponse<{ email: string; devOtp?: string }>>('/auth/forgot-password', { email });
     return data;
   },
 
