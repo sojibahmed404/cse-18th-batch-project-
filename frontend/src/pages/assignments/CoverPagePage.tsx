@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import React, { useState, useRef, useEffect } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Download, Share2, ArrowLeft, BookOpen, User } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
@@ -11,28 +11,32 @@ import { KYAU_COURSES_LIST } from '../CoursesPage';
 
 export default function CoverPagePage() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const pdfRef = useRef<HTMLDivElement>(null);
   const [isGenerating, setIsGenerating] = useState(false);
 
-  // Default to first course in KYAU list
-  const defaultCourse = KYAU_COURSES_LIST[0];
+  const queryCourseCode = searchParams.get('courseCode');
+  const queryTopic = searchParams.get('topic');
 
-  // Form State initialized with user and default course data
+  // Match course from URL query or default to first course
+  const matchedInitialCourse = KYAU_COURSES_LIST.find(c => c.code === queryCourseCode) || KYAU_COURSES_LIST[0];
+
+  // Form State initialized with user and default or query course data
   const [formData, setFormData] = useState({
-    type: 'Assignment',
+    type: matchedInitialCourse.title.toLowerCase().includes('lab') ? 'Lab Report' : 'Assignment',
     no: '01',
-    courseCode: defaultCourse.code,
-    courseTitle: defaultCourse.title,
-    topic: 'Relational Algebra & Normalization',
+    courseCode: matchedInitialCourse.code,
+    courseTitle: matchedInitialCourse.title,
+    topic: queryTopic || 'Relational Algebra & Normalization',
     semSeason: 'Fall',
     semYear: '2026',
     studentName: user?.student?.firstName ? `${user.student.firstName} ${user.student.lastName}` : 'Md. Sojib Ahmed',
     studentId: user?.student?.studentId || '06224205101005',
     batch: '18th',
     semester: user?.student?.currentSemester || '3rd Year 1st Semester',
-    teacherName: defaultCourse.teacher,
-    teacherDesignation: defaultCourse.designation,
+    teacherName: matchedInitialCourse.teacher,
+    teacherDesignation: matchedInitialCourse.designation,
     teacherDept: 'Department of Computer Science & Engineering',
   });
 
