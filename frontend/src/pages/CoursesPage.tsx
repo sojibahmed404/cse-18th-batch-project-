@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'react-hot-toast';
+import { useAuth } from '../hooks/useAuth';
 import {
   GraduationCap,
   BookOpen,
@@ -24,7 +26,12 @@ import {
   Layers,
   Building,
   Bookmark,
-  Bell
+  Bell,
+  Plus,
+  UploadCloud,
+  X,
+  Trash2,
+  ShieldCheck
 } from 'lucide-react';
 
 export interface CourseMaterialItem {
@@ -669,12 +676,27 @@ export const KYAU_COURSES_LIST: CourseItem[] = [
 export default function CoursesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  // CR Role authorization check (CR, CO_CR, ADMIN)
+  const isCR = user?.role === 'CR' || user?.role === 'CO_CR' || user?.role === 'ADMIN';
+
+  // Dynamic courses list state
+  const [coursesList, setCoursesList] = useState<CourseItem[]>(KYAU_COURSES_LIST);
 
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(searchParams.get('id'));
   const [activeTab, setActiveTab] = useState<'info' | 'slides' | 'assignments' | 'notices'>('info');
   const [materialFilter, setMaterialFilter] = useState<string>('ALL');
+
+  // Slide / Material Upload Modal State (CR Portal)
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [uploadTitle, setUploadTitle] = useState('');
+  const [uploadType, setUploadType] = useState<CourseMaterialItem['type']>('SLIDE');
+  const [uploadDescription, setUploadDescription] = useState('');
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadFileUrl, setUploadFileUrl] = useState('');
 
   // Sync selected course from URL parameter if present
   useEffect(() => {
@@ -684,7 +706,7 @@ export default function CoursesPage() {
     }
   }, [searchParams]);
 
-  const selectedCourse = KYAU_COURSES_LIST.find((c) => c.id === selectedCourseId);
+  const selectedCourse = coursesList.find((c) => c.id === selectedCourseId);
 
   const handleSelectCourse = (id: string) => {
     setSelectedCourseId(id);
@@ -697,7 +719,7 @@ export default function CoursesPage() {
     setSearchParams({});
   };
 
-  const filteredCourses = KYAU_COURSES_LIST.filter(
+  const filteredCourses = coursesList.filter(
     (c) =>
       c.title.toLowerCase().includes(search.toLowerCase()) ||
       c.code.toLowerCase().includes(search.toLowerCase()) ||
@@ -706,6 +728,75 @@ export default function CoursesPage() {
 
   const handleGenerateCoverPage = (courseCode: string, topic: string) => {
     navigate(`/cover-page?courseCode=${encodeURIComponent(courseCode)}&topic=${encodeURIComponent(topic)}`);
+  };
+
+  // Submit Uploaded Slide/Material (CR System)
+  const handleUploadSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCourse) return;
+    if (!uploadTitle.trim()) {
+      toast.error('Please enter a title for the material');
+      return;
+    }
+
+    const fileSizeString = uploadFile
+      ? `${(uploadFile.size / (1024 * 1024)).toFixed(1)} MB`
+      : '3.5 MB';
+
+    const newMaterial: CourseMaterialItem = {
+      id: `m_${Date.now()}`,
+      title: uploadTitle.trim(),
+      type: uploadType,
+      fileUrl: uploadFileUrl.trim() || '#',
+      fileSize: fileSizeString,
+      uploadDate: new Date().toISOString().split('T')[0],
+      downloadCount: 0,
+      description: uploadDescription.trim() || undefined,
+    };
+
+    setCoursesList((prev) =>
+      prev.map((c) => {
+        if (c.id === selectedCourse.id) {
+          const updatedMaterials = [newMaterial, ...(c.materials || [])];
+          return {
+            ...c,
+            materials: updatedMaterials,
+            slidesCount: uploadType === 'SLIDE' ? c.slidesCount + 1 : c.slidesCount,
+            notesCount: uploadType === 'NOTE' ? c.notesCount + 1 : c.notesCount,
+            booksCount: uploadType === 'BOOK' ? c.booksCount + 1 : c.booksCount,
+          };
+        }
+        return c;
+      })
+    );
+
+    toast.success('Slide/Material uploaded successfully!');
+    setIsUploadModalOpen(false);
+    setUploadTitle('');
+    setUploadType('SLIDE');
+    setUploadDescription('');
+    setUploadFile(null);
+    setUploadFileUrl('');
+  };
+
+  // Delete Material Handler (CR Access)
+  const handleDeleteMaterial = (materialId: string) => {
+    if (!selectedCourse) return;
+    if (!window.confirm('Are you sure you want to delete this study material?')) return;
+
+    setCoursesList((prev) =>
+      prev.map((c) => {
+        if (c.id === selectedCourse.id) {
+          return {
+            ...c,
+            materials: (c.materials || []).filter((m) => m.id !== materialId),
+          };
+        }
+        return c;
+      })
+    );
+
+    toast.success('Study material deleted successfully.');
   };
 
   // -------------------------------------------------------------
@@ -926,28 +1017,40 @@ export default function CoursesPage() {
           {/* TAB 2: SLIDES & STUDY MATERIALS */}
           {activeTab === 'slides' && (
             <div className="space-y-6">
-              {/* Category Filter Pills */}
-              <div className="flex items-center gap-2 overflow-x-auto pb-2">
-                {[
-                  { label: 'All Materials', value: 'ALL' },
-                  { label: 'Lecture Slides', value: 'SLIDE' },
-                  { label: 'Notes', value: 'NOTE' },
-                  { label: 'Reference Books', value: 'BOOK' },
-                  { label: 'Lab Manuals', value: 'LAB_MANUAL' },
-                  { label: 'Past Questions', value: 'PREVIOUS_QUESTION' },
-                ].map((f) => (
-                  <button
-                    key={f.value}
-                    onClick={() => setMaterialFilter(f.value)}
-                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-                      materialFilter === f.value
-                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-                        : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {f.label}
-                  </button>
-                ))}
+              {/* Category Filter Pills & Upload Action */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                  {[
+                    { label: 'All Materials', value: 'ALL' },
+                    { label: 'Lecture Slides', value: 'SLIDE' },
+                    { label: 'Notes', value: 'NOTE' },
+                    { label: 'Reference Books', value: 'BOOK' },
+                    { label: 'Lab Manuals', value: 'LAB_MANUAL' },
+                    { label: 'Past Questions', value: 'PREVIOUS_QUESTION' },
+                  ].map((f) => (
+                    <button
+                      key={f.value}
+                      onClick={() => setMaterialFilter(f.value)}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                        materialFilter === f.value
+                          ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
+                          : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  onClick={() => setIsUploadModalOpen(true)}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white transition-all shadow-lg shadow-indigo-600/30 shrink-0"
+                >
+                  <Plus size={16} /> Upload Slide / Material
+                  <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-indigo-400/20 text-indigo-200 border border-indigo-400/30 font-mono">
+                    CR Access
+                  </span>
+                </button>
               </div>
 
               {/* Materials Grid */}
@@ -994,18 +1097,29 @@ export default function CoursesPage() {
                         <span className="text-[11px] text-slate-500 flex items-center gap-1 font-mono">
                           <Download size={12} /> {mat.downloadCount} downloads
                         </span>
-                        <a
-                          href={mat.fileUrl}
-                          onClick={(e) => {
-                            if (mat.fileUrl === '#') {
-                              e.preventDefault();
-                              alert(`Downloading sample file: ${mat.title}`);
-                            }
-                          }}
-                          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white transition-all shadow-md shadow-indigo-600/20"
-                        >
-                          <Download size={14} /> Download
-                        </a>
+                        <div className="flex items-center gap-2">
+                          {isCR && (
+                            <button
+                              onClick={() => handleDeleteMaterial(mat.id)}
+                              title="Delete Material (CR Access)"
+                              className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                          <a
+                            href={mat.fileUrl}
+                            onClick={(e) => {
+                              if (mat.fileUrl === '#') {
+                                e.preventDefault();
+                                toast.success(`Downloading: ${mat.title}`);
+                              }
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white transition-all shadow-md shadow-indigo-600/20"
+                          >
+                            <Download size={14} /> Download
+                          </a>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -1090,6 +1204,116 @@ export default function CoursesPage() {
             </div>
           )}
         </div>
+
+        {/* Upload Material Modal (CR System) */}
+        <AnimatePresence>
+          {isUploadModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="w-full max-w-lg rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-6"
+              >
+                <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600/20 text-indigo-400 font-bold">
+                      <UploadCloud size={20} />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-white">Upload Study Material</h3>
+                      <p className="text-xs text-slate-400">CR / Co-CR Material Upload Portal — {selectedCourse.code}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIsUploadModalOpen(false)}
+                    className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <form onSubmit={handleUploadSubmit} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-300">Material Title *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Chapter 3: Relational Algebra & SQL Slides"
+                      value={uploadTitle}
+                      onChange={(e) => setUploadTitle(e.target.value)}
+                      className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-slate-300">Category / Type</label>
+                      <select
+                        value={uploadType}
+                        onChange={(e) => setUploadType(e.target.value as any)}
+                        className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      >
+                        <option value="SLIDE">Lecture Slide (স্লাইড)</option>
+                        <option value="NOTE">Lecture Note (লেকচার নোট)</option>
+                        <option value="BOOK">Reference Book (বই)</option>
+                        <option value="LAB_MANUAL">Lab Manual (ল্যাব ম্যানুয়াল)</option>
+                        <option value="PREVIOUS_QUESTION">Past Exam Question (প্রশ্নপত্র)</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-slate-300">File Attachment</label>
+                      <input
+                        type="file"
+                        onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                        className="w-full text-xs text-slate-400 file:mr-2 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-600/20 file:text-indigo-300 hover:file:bg-indigo-600/30"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-300">File URL / Drive Link (Optional)</label>
+                    <input
+                      type="text"
+                      placeholder="https://drive.google.com/..."
+                      value={uploadFileUrl}
+                      onChange={(e) => setUploadFileUrl(e.target.value)}
+                      className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono text-xs"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-300">Description / Topic Notes</label>
+                    <textarea
+                      rows={3}
+                      placeholder="Brief summary of what this slide or note covers..."
+                      value={uploadDescription}
+                      onChange={(e) => setUploadDescription(e.target.value)}
+                      className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-800 flex justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsUploadModalOpen(false)}
+                      className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300 transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white transition-all shadow-lg shadow-indigo-600/30"
+                    >
+                      <UploadCloud size={16} /> Publish Material
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </motion.div>
     );
   }
@@ -1160,8 +1384,8 @@ export default function CoursesPage() {
             >
               {/* Left Column: Code, Title, Faculty */}
               <div className="flex items-start md:items-center gap-4 flex-1">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-indigo-600/20 text-indigo-400 font-extrabold border border-indigo-500/30 text-xs font-mono">
-                  {course.code.replace('CSE 0613-', '')}
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-indigo-600/20 text-indigo-400 font-extrabold border border-indigo-500/30 text-sm font-mono shadow-inner">
+                  #{String(idx + 1).padStart(2, '0')}
                 </div>
                 
                 <div className="space-y-1">
