@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Download, Share2, ArrowLeft, BookOpen, User, Send, Users, CheckSquare, Square } from 'lucide-react';
+import { Download, Share2, ArrowLeft, BookOpen, User, Send, Users, CheckSquare, Square, Layers, Loader2 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
@@ -54,12 +54,18 @@ export default function CoverPagePage() {
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const pdfRef = useRef<HTMLDivElement>(null);
+
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ current: number; total: number; name: string } | null>(null);
+
+  // Mode: 'SINGLE' vs 'BULK'
+  const [generationMode, setGenerationMode] = useState<'SINGLE' | 'BULK'>('SINGLE');
   
-  // State to toggle generating for others vs self
-  const [generateForBatchmates, setGenerateForBatchmates] = useState(false);
-  const [selectedBatchmateId, setSelectedBatchmateId] = useState('');
+  // Selected Students for Bulk Download (Array of Student IDs)
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([
+    user?.student?.studentId || '6224205101006'
+  ]);
 
   const queryCourseCode = searchParams.get('courseCode');
   const queryTopic = searchParams.get('topic');
@@ -70,7 +76,7 @@ export default function CoverPagePage() {
   const defaultStudentName = user?.student?.firstName ? `${user.student.firstName} ${user.student.lastName}` : 'Md. Sojib Ahmed';
   const defaultStudentId = user?.student?.studentId || '6224205101006';
 
-  // Form State matching KYAU PDF Builder
+  // Form State (Shared Course & Subject Information entered ONCE)
   const [formData, setFormData] = useState({
     type: matchedInitialCourse.title.toLowerCase().includes('lab') ? 'Lab Report' : 'Assignment',
     no: '01',
@@ -108,12 +114,17 @@ export default function CoverPagePage() {
     }
   };
 
-  const handleToggleBatchmates = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const checked = e.target.checked;
-    setGenerateForBatchmates(checked);
-    if (!checked) {
-      // Revert to self
-      setSelectedBatchmateId('');
+  // Toggle Single vs Bulk Student Mode
+  const handleSingleStudentSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const sId = e.target.value;
+    const found = CSE_18TH_BATCH_STUDENTS.find(s => s.studentId === sId);
+    if (found) {
+      setFormData(prev => ({
+        ...prev,
+        studentName: found.name,
+        studentId: found.studentId,
+      }));
+    } else {
       setFormData(prev => ({
         ...prev,
         studentName: defaultStudentName,
@@ -122,32 +133,37 @@ export default function CoverPagePage() {
     }
   };
 
-  const handleSelectBatchmate = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const sId = e.target.value;
-    setSelectedBatchmateId(sId);
-    const found = CSE_18TH_BATCH_STUDENTS.find(s => s.studentId === sId);
-    if (found) {
-      setFormData(prev => ({
-        ...prev,
-        studentName: found.name,
-        studentId: found.studentId,
-      }));
-    }
+  // Checkbox Selection for Bulk Students
+  const toggleStudentSelection = (studentId: string) => {
+    setSelectedStudentIds(prev =>
+      prev.includes(studentId)
+        ? prev.filter(id => id !== studentId)
+        : [...prev, studentId]
+    );
   };
 
-  // PDF Filename dynamically including Student Name as requested
-  const getPdfFilename = () => {
-    const cleanName = formData.studentName.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_');
-    const cleanCourse = formData.courseCode.replace(/[^a-zA-Z0-9]/g, '_');
+  const handleSelectAllStudents = () => {
+    setSelectedStudentIds(CSE_18TH_BATCH_STUDENTS.map(s => s.studentId));
+  };
+
+  const handleDeselectAllStudents = () => {
+    setSelectedStudentIds([]);
+  };
+
+  // PDF Filename format including Student Name
+  const getPdfFilename = (name: string, courseCode: string) => {
+    const cleanName = name.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_');
+    const cleanCourse = courseCode.replace(/[^a-zA-Z0-9]/g, '_');
     return `${cleanName}_${cleanCourse}_CoverPage.pdf`;
   };
 
-  const handleGeneratePdf = () => {
+  // Generate PDF for Single Student
+  const handleGeneratePdfSingle = async () => {
     if (!pdfRef.current) return;
     setIsGenerating(true);
 
     const element = pdfRef.current;
-    const filename = getPdfFilename();
+    const filename = getPdfFilename(formData.studentName, formData.courseCode);
     const opt = {
       margin: 0,
       filename: filename,
@@ -156,14 +172,64 @@ export default function CoverPagePage() {
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
 
-    html2pdf().set(opt).from(element).save().then(() => {
-      setIsGenerating(false);
-      toast.success(`PDF downloaded as: ${filename}`);
-    }).catch((err: any) => {
+    try {
+      await (html2pdf() as any).set(opt).from(element).save();
+      toast.success(`Downloaded: ${filename}`);
+    } catch (err) {
       console.error(err);
-      setIsGenerating(false);
       toast.error('Failed to generate PDF');
-    });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Bulk PDF Generator (One Click Download for Selected / All Students)
+  const handleGeneratePdfBulk = async () => {
+    if (!pdfRef.current) return;
+    if (selectedStudentIds.length === 0) {
+      toast.error('Please select at least 1 student to download.');
+      return;
+    }
+
+    setIsGenerating(true);
+    const targetStudents = CSE_18TH_BATCH_STUDENTS.filter(s => selectedStudentIds.includes(s.studentId));
+    toast.loading(`Starting bulk download for ${targetStudents.length} students...`, { id: 'bulk-toast' });
+
+    for (let i = 0; i < targetStudents.length; i++) {
+      const student = targetStudents[i];
+      setBulkProgress({ current: i + 1, total: targetStudents.length, name: student.name });
+
+      // Update Form Data to current student so preview element updates
+      setFormData(prev => ({
+        ...prev,
+        studentName: student.name,
+        studentId: student.studentId,
+      }));
+
+      // Wait 250ms for React state & DOM to render
+      await new Promise(resolve => setTimeout(resolve, 250));
+
+      const element = pdfRef.current;
+      const filename = getPdfFilename(student.name, formData.courseCode);
+      const opt = {
+        margin: 0,
+        filename: filename,
+        image: { type: 'jpeg', quality: 1 },
+        html2canvas: { scale: 3, useCORS: true, scrollY: 0, letterRendering: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+
+      try {
+        await (html2pdf() as any).set(opt).from(element).save();
+      } catch (err) {
+        console.error(`Failed to download for ${student.name}`, err);
+      }
+    }
+
+    toast.dismiss('bulk-toast');
+    toast.success(`Successfully downloaded ${targetStudents.length} PDF cover pages!`);
+    setIsGenerating(false);
+    setBulkProgress(null);
   };
 
   const handleShareWhatsApp = async () => {
@@ -171,7 +237,7 @@ export default function CoverPagePage() {
     setIsSharing(true);
 
     const element = pdfRef.current;
-    const filename = getPdfFilename();
+    const filename = getPdfFilename(formData.studentName, formData.courseCode);
     const opt = {
       margin: 0,
       filename: filename,
@@ -211,9 +277,9 @@ export default function CoverPagePage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
               KYAU Cover Page Generator
-              <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Official Format</span>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Batch Generator</span>
             </h1>
-            <p className="text-sm text-slate-400">Generate official Khwaja Yunus Ali University A4 PDF cover pages</p>
+            <p className="text-sm text-slate-400">Generate A4 PDF cover pages for yourself or bulk download for batchmates</p>
           </div>
         </div>
 
@@ -240,40 +306,110 @@ export default function CoverPagePage() {
             </CardHeader>
             <CardContent className="space-y-4 pt-4">
               
-              {/* Batchmates Cover Page Checkbox Option */}
-              <div className="p-3.5 rounded-xl bg-indigo-950/40 border border-indigo-500/30 space-y-2">
-                <label className="flex items-center gap-2.5 cursor-pointer text-xs font-bold text-indigo-300">
-                  <input
-                    type="checkbox"
-                    checked={generateForBatchmates}
-                    onChange={handleToggleBatchmates}
-                    className="rounded border-slate-800 bg-slate-950 text-indigo-500 focus:ring-indigo-500 h-4 w-4"
-                  />
-                  <span className="flex items-center gap-1.5">
-                    <Users size={15} className="text-indigo-400" /> Generate cover page for another batchmate
-                  </span>
-                </label>
+              {/* Generation Mode Selector Tabs: Single vs Bulk Selection */}
+              <div className="p-1 rounded-xl bg-slate-950 border border-slate-800 grid grid-cols-2 gap-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setGenerationMode('SINGLE')}
+                  className={`py-2 px-3 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 ${
+                    generationMode === 'SINGLE'
+                      ? 'bg-indigo-600 text-white shadow-md'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <User size={14} /> Single Student Mode
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGenerationMode('BULK')}
+                  className={`py-2 px-3 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 ${
+                    generationMode === 'BULK'
+                      ? 'bg-amber-500 text-slate-950 shadow-md'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Users size={14} /> Bulk Batch Download
+                </button>
+              </div>
 
-                {generateForBatchmates && (
-                  <div className="pt-2 space-y-1.5 animate-in fade-in duration-200">
-                    <label className="text-[11px] font-semibold text-slate-300">Select CSE 18th Batchmate Name</label>
-                    <select
-                      value={selectedBatchmateId}
-                      onChange={handleSelectBatchmate}
-                      className="flex h-10 w-full rounded-lg border border-indigo-500/60 bg-slate-950 px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
-                    >
-                      <option value="">Choose a student from 18th Batch...</option>
+              {/* MODE 1: Single Student Picker */}
+              {generationMode === 'SINGLE' && (
+                <div className="space-y-1.5 animate-in fade-in duration-200">
+                  <label className="text-xs font-semibold text-slate-300 flex items-center gap-1">
+                    <User size={13} className="text-indigo-400" /> Select Student / Batchmate
+                  </label>
+                  <select
+                    value={formData.studentId}
+                    onChange={handleSingleStudentSelect}
+                    className="flex h-10 w-full rounded-lg border border-indigo-500/40 bg-slate-950 px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                  >
+                    <option value={defaultStudentId}>My Profile ({defaultStudentName} - {defaultStudentId})</option>
+                    <optgroup label="CSE 18th Batch Students">
                       {CSE_18TH_BATCH_STUDENTS.map((s) => (
                         <option key={s.studentId} value={s.studentId}>
                           {s.name} ({s.studentId})
                         </option>
                       ))}
-                    </select>
-                  </div>
-                )}
-              </div>
+                    </optgroup>
+                  </select>
+                </div>
+              )}
 
-              {/* Quick Select CSE 18th Batch Course */}
+              {/* MODE 2: Multi-Select Batchmates Grid */}
+              {generationMode === 'BULK' && (
+                <div className="space-y-3 p-3.5 rounded-xl bg-amber-950/20 border border-amber-500/30 animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-bold text-amber-300 flex items-center gap-1">
+                        <Users size={14} /> Select Batchmates for Bulk Download
+                      </h4>
+                      <p className="text-[11px] text-slate-400">Selected: <strong className="text-amber-400">{selectedStudentIds.length}</strong> / {CSE_18TH_BATCH_STUDENTS.length} students</p>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={handleSelectAllStudents}
+                        className="px-2 py-1 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold hover:bg-amber-500/30"
+                      >
+                        Select All
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDeselectAllStudents}
+                        className="px-2 py-1 rounded bg-slate-800 text-slate-400 text-[10px] font-bold hover:text-white"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Scrollable Checkbox List */}
+                  <div className="max-h-48 overflow-y-auto space-y-1 pr-1 custom-scrollbar bg-slate-950 p-2 rounded-lg border border-slate-800 text-xs">
+                    {CSE_18TH_BATCH_STUDENTS.map((s) => {
+                      const isSelected = selectedStudentIds.includes(s.studentId);
+                      return (
+                        <label
+                          key={s.studentId}
+                          onClick={() => toggleStudentSelection(s.studentId)}
+                          className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors ${
+                            isSelected ? 'bg-amber-500/10 text-amber-200 font-semibold' : 'text-slate-400 hover:bg-slate-900'
+                          }`}
+                        >
+                          <span className="truncate pr-2">{s.name} ({s.studentId})</span>
+                          {isSelected ? (
+                            <CheckSquare size={16} className="text-amber-400 shrink-0" />
+                          ) : (
+                            <Square size={16} className="text-slate-600 shrink-0" />
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Shared Course Information (Entered ONCE) */}
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-300">Quick Select CSE 18th Batch Course</label>
                 <select
@@ -350,7 +486,7 @@ export default function CoverPagePage() {
               {/* Submitted By Section */}
               <div className="pt-3 border-t border-slate-800 space-y-3">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1">
-                  <User size={14} /> Submitted By
+                  <User size={14} /> Submitted By Info
                 </h3>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
@@ -362,46 +498,12 @@ export default function CoverPagePage() {
                     <Input name="studentId" value={formData.studentId} onChange={handleChange} className="bg-slate-950 border-slate-800 text-white h-9 text-xs" />
                   </div>
                 </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-[11px] text-slate-400">Batch No</label>
-                    <select
-                      name="batch"
-                      value={formData.batch}
-                      onChange={handleChange}
-                      className="flex h-9 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    >
-                      {Array.from({ length: 16 }, (_, i) => i + 10).map(batchNum => (
-                        <option key={batchNum} value={`${batchNum}th`}>{batchNum}th</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[11px] text-slate-400">Current Semester</label>
-                    <select
-                      name="semester"
-                      value={formData.semester}
-                      onChange={handleChange}
-                      className="flex h-9 w-full rounded-lg border border-slate-800 bg-slate-950 px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    >
-                      <option value="1st Year 1st Semester">1st Year 1st Semester</option>
-                      <option value="1st Year 2nd Semester">1st Year 2nd Semester</option>
-                      <option value="2nd Year 1st Semester">2nd Year 1st Semester</option>
-                      <option value="2nd Year 2nd Semester">2nd Year 2nd Semester</option>
-                      <option value="3rd Year 1st Semester">3rd Year 1st Semester</option>
-                      <option value="3rd Year 2nd Semester">3rd Year 2nd Semester</option>
-                      <option value="4th Year 1st Semester">4th Year 1st Semester</option>
-                      <option value="4th Year 2nd Semester">4th Year 2nd Semester</option>
-                    </select>
-                  </div>
-                </div>
               </div>
 
               {/* Submitted To Section */}
               <div className="pt-3 border-t border-slate-800 space-y-3">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1">
-                  <User size={14} /> Submitted To
+                  <User size={14} /> Submitted To Info
                 </h3>
                 <div className="space-y-2">
                   <Input name="teacherName" value={formData.teacherName} onChange={handleChange} placeholder="Teacher Name" className="bg-slate-950 border-slate-800 text-white h-9 text-xs" />
@@ -424,23 +526,44 @@ export default function CoverPagePage() {
 
               {/* Action Buttons */}
               <div className="pt-4 flex flex-col gap-3">
-                <Button 
-                  onClick={handleGeneratePdf} 
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 shadow-lg shadow-emerald-600/30 text-sm"
-                  isLoading={isGenerating}
-                >
-                  <Download className="mr-2 h-4 w-4" /> Download PDF Cover Page
-                </Button>
+                {generationMode === 'SINGLE' ? (
+                  <Button 
+                    onClick={handleGeneratePdfSingle} 
+                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 shadow-lg shadow-emerald-600/30 text-sm"
+                    isLoading={isGenerating}
+                  >
+                    <Download className="mr-2 h-4 w-4" /> Download PDF Cover Page
+                  </Button>
+                ) : (
+                  <Button 
+                    onClick={handleGeneratePdfBulk} 
+                    className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold py-3 shadow-lg shadow-amber-500/20 text-sm"
+                    isLoading={isGenerating}
+                  >
+                    {isGenerating ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="animate-spin h-4 w-4" /> 
+                        {bulkProgress ? `Generating (${bulkProgress.current}/${bulkProgress.total}) ${bulkProgress.name}` : 'Generating PDFs...'}
+                      </span>
+                    ) : (
+                      <span className="flex items-center justify-center gap-2">
+                        <Download className="h-4 w-4" /> Download All PDFs ({selectedStudentIds.length} Selected)
+                      </span>
+                    )}
+                  </Button>
+                )}
+
                 <div className="text-[11px] text-center text-slate-400 font-mono">
-                  PDF output file: <span className="text-emerald-400 font-bold">{getPdfFilename()}</span>
+                  PDF output file: <span className="text-emerald-400 font-bold">{getPdfFilename(formData.studentName, formData.courseCode)}</span>
                 </div>
+
                 <Button 
                   onClick={handleShareWhatsApp} 
                   variant="outline"
                   className="w-full border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/10 font-semibold py-2 text-xs"
                   isLoading={isSharing}
                 >
-                  <Send className="mr-2 h-3.5 w-3.5" /> Share Cover Page
+                  <Send className="mr-2 h-3.5 w-3.5" /> Share Active Cover Page
                 </Button>
               </div>
             </CardContent>
