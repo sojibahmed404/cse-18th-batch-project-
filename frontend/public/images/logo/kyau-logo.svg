@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="110" height="110">
+  <circle cx="60" cy="60" r="56" fill="#ffffff" stroke="#2e7d32" stroke-width="4" />
+  <circle cx="60" cy="60" r="50" fill="none" stroke="#1b4f72" stroke-width="2" stroke-dasharray="4,2" />
+  
+  <!-- Outer Text Ring Path -->
+  <path id="textPathTop" d="M 18 60 A 42 42 0 0 1 102 60" fill="none"/>
+  <text font-family="'Segoe UI', Arial, sans-serif" font-size="9 font-weight="bold" fill="#2e7d32" text-anchor="middle">
+    <textPath href="#textPathTop" startOffset="50%">KHW AJA YUNUS ALI UNIVERSITY</textPath>
+  </text>
+  
+  <!-- Emblem Center Graphic -->
+  <g transform="translate(60,62)">
+    <!-- Book -->
+    <path d="M-22,-2 Q-11,-10 0,-2 Q11,-10 22,-2 L22,14 Q11,6 0,14 Q-11,6 -22,14 Z" fill="#1b4f72" stroke="#2e7d32" stroke-width="1.5"/>
+    <path d="M0,-2 L0,14" stroke="#ffffff" stroke-width="1.5"/>
+    
+    <!-- Sun / Academic Rays -->
+    <circle cx="0" cy="-16" r="6" fill="#f5b041"/>
+    <path d="M-10,-16 L-15,-16 M10,-16 L15,-16 M0,-26 L0,-22 M-7,-23 L-4,-20 M7,-23 L4,-20" stroke="#f5b041" stroke-width="1.5"/>
+    
+    <!-- Stars -->
+    <polygon points="-28,22 -26,20 -24,22 -25,19 -23,17 -26,17 -27,15 -28,17 -31,17 -29,19" fill="#2e7d32"/>
+    <polygon points="28,22 26,20 24,22 25,19 23,17 26,17 27,15 28,17 31,17 29,19" fill="#2e7d32"/>
+  </g>
+  
+  <!-- Bottom Ribbon text -->
+  <path d="M 25 85 Q 60 102 95 85" fill="none" stroke="#2e7d32" stroke-width="1"/>
+  <text font-family="'Segoe UI', Arial, sans-serif" font-size="7.5" font-weight="bold" fill="#1b4f72" text-anchor="middle">
+    <textPath href="#textPathBottom" startOffset="50%">ENAYETPUR, SIRAJGANJ</textPath>
+  </text>
+  <path id="textPathBottom" d="M 25 86 Q 60 102 95 86" fill="none"/>
+</svg>

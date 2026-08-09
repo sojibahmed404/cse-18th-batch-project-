@@ -10,7 +10,7 @@
 [![React](https://img.shields.io/badge/React-18.x-61DAFB?style=flat-square&logo=react)](https://reactjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat-square&logo=typescript)](https://typescriptlang.org)
 [![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?style=flat-square&logo=mysql)](https://mysql.com)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker)](https://docker.com)
+[![Firebase](https://img.shields.io/badge/Firebase-Integrated-FFCA28?style=flat-square&logo=firebase&logoColor=black)](https://firebase.google.com)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
 **Built for CSE 18th Batch — KYAU**
@@ -88,12 +88,13 @@ It provides a centralized platform for managing courses, assignments, notices, r
 | Helmet | 7.x | Security Headers |
 | swagger-ui-express | 5.x | API Docs |
 
-### DevOps
-| Technology | Purpose |
+### Firebase & Services
+| Service | Purpose |
 |-----------|---------|
-| Docker | Containerization |
-| Docker Compose | Multi-container orchestration |
-| NGINX | Reverse Proxy |
+| Firebase Auth | Authentication & User Identity Management |
+| Firestore / DB | Cloud NoSQL & Realtime Database |
+| Firebase Storage | File Storage & Media Asset Hosting |
+| Firebase Hosting | Static App Deployment & Hosting |
 | GitHub Actions | CI/CD Pipeline |
 
 ---
@@ -168,10 +169,6 @@ cse-batch18-portal/
 │   │   └── server.ts               # Server entry point
 │   └── package.json
 │
-├── 📁 docker/
-│   ├── nginx/nginx.conf            # NGINX configuration
-│   └── mysql/init.sql              # MySQL init script
-│
 ├── 📁 docs/                        # Documentation
 │   ├── API.md                      # API reference
 │   ├── ARCHITECTURE.md             # System architecture
@@ -180,8 +177,8 @@ cse-batch18-portal/
 ├── 📁 .github/workflows/           # GitHub Actions
 │   └── ci.yml                      # CI/CD pipeline
 │
-├── docker-compose.yml              # Production Docker setup
-├── docker-compose.dev.yml          # Development (DB only)
+├── firebase.json                   # Firebase configuration
+├── .firebaserc                     # Firebase project mapping
 ├── .env.example                    # Environment template
 ├── .gitignore
 └── README.md
@@ -194,10 +191,10 @@ cse-batch18-portal/
 ### Prerequisites
 
 - **Node.js** 20.x or later ([Download](https://nodejs.org))
-- **MySQL** 8.0 or Docker ([Download](https://www.mysql.com))
-- **npm** 11.x (comes with Node.js)
+- **npm** 10.x or later (comes with Node.js)
+- **Firebase Account & Project** ([Firebase Console](https://console.firebase.google.com))
 
-### Option 1: Local Development (Without Docker)
+### Local Development Setup
 
 **1. Clone the repository**
 ```bash
@@ -205,17 +202,10 @@ git clone https://github.com/yourusername/cse18-batch-portal.git
 cd cse18-batch-portal
 ```
 
-**2. Setup MySQL Database**
-
-Using Docker (recommended):
-```bash
-docker-compose -f docker-compose.dev.yml up -d
-```
-
-Or install MySQL locally and create database:
-```sql
-CREATE DATABASE cse18_portal CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-```
+**2. Setup Firebase & Environment Variables**
+- Create a project on [Firebase Console](https://console.firebase.google.com).
+- Copy `.env.example` to `.env` inside `frontend` and `backend`.
+- Update the Firebase variables (`VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_PROJECT_ID`, etc.).
 
 **3. Setup Backend**
 ```bash
@@ -226,15 +216,13 @@ cp .env.example .env
 # Edit .env with your values
 
 # Install dependencies
-npm install
+npm install --legacy-peer-deps
 
 # Generate Prisma client
 npm run db:generate
 
-# Run migrations
+# Run migrations & seed database
 npm run db:push
-
-# Seed database with real student data
 npm run db:seed
 
 # Start development server
@@ -260,21 +248,18 @@ npm run dev
 
 ✅ Frontend running at: `http://localhost:5173`
 
-### Option 2: Docker (Production)
+### Deploying to Firebase Hosting
 
 ```bash
-# Copy and edit environment variables
-cp .env.example .env
-nano .env  # Set your secrets
+# Build frontend
+cd frontend
+npm run build
+cd ..
 
-# Start all services
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
+# Deploy with Firebase CLI
+npx firebase-tools deploy
 ```
 
-✅ Application running at: `http://localhost`
 
 ---
 
